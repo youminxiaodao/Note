@@ -104,3 +104,76 @@ ABA问题的产生是因为变量的状态值产生了环形转换，就是变�
 
 ## Java并发包中原子操作类
 
+AtomicLong ,LongAdder,LongAccumulator
+
+## List
+
+若让我们自己做一个写时复制的线程安全的list应考虑到哪些因素?
+
+1.何时初始化list，初始化的list元素个数为多少，list是有限大小吗？
+
+​	创建List对象时进行初始化；初始化list元素个数为0;list是无界list
+
+2.如何保证线程安全，比如多个线程进行写时复制时如何保证是线程安全的？
+
+3.如何保证使用迭代器遍历list时的数据一致性？
+
+![image-20210226150735476](image-20210226150735476.png)
+
+CopyOnWriteArrayList使用写时复制的策略来保证list的一致性，而获取--修改--写入三步操作并不是原子性的，所以在增删改的过程中都使用了独占锁，来保证在某个时间只有一个线程能对list数组进行修改。另外CopyOnWriteArrayList提供了弱一致性的迭代器，从而保证在获取迭代器后，其他线程对list的修改是不可见的，迭代器的数组是一个快照。CopyOnWriteArraySet底层使用CopyOnWriteArrayList实现.
+
+
+
+## LockSupport
+
+作用:LockSupport是rt.jar中的一个工具类，它的主要作用是挂起和唤醒线程，该工具类是创建锁和其它同步类的基础.
+
+LockSupport类与每个使用它的线程都会关联一个许可证，在默认情况下调用LockSupport类的方法的线程是不持有许可证。LockSupport是使用Unsafe类实现的.
+
+### park
+
+![image-20210226162300600](image-20210226162300600.png)
+
+若调用park方法的线程已经拿到了与LockSupport关联的许可证，则调用LockSupport.park()时会马上返回，否则调用线程会被禁止参与线程的调用，即被阻塞挂起
+
+## AQS
+
+AQS:AbstractQueuedSynchronizer抽象同步队列简称AQS，它是实现同步器的基础组件，并发包中锁的底层就是使用AQS实现的.
+
+### AQS---锁的底层支持
+
+AbstractQueuedSynchronizer 抽象同步队列简称 AQS ,它是实现同步器的 基 础组件,并发包中锁的底层就是使用 AQS 实现的 。 另外,大多数开发者可能永远不会直接使用AQS ,但是知道其原理对于架构设计还是很有帮助的 。 下面看下 AQS 的类图 结 构,如图 6-1所示 。
+
+![image-20210226220534462](image-20210226220534462.png)
+
+
+
+由该图可以看到, AQS 是 一个 FIFO 的双向队列,其内部通过节点 head 和 tail 记录 队首和队尾元素,队列元素的类型为 Node 。 其中 Node 中的 thread 变量用来存放进入 AQS队列里面的线程: Node 节点内部的 SHARED 用来标记该线程是获取共 享 资源时被阻 塞挂起后放入 AQS 队列的, EXCLUS IVE 用来标记线程是 获 取独占资源时被挂起后放入AQS 队列的 ; waitStatus 记录当前线程等待状态,可以为 CANCELLED (线程被取消了)、SIGNAL ( 线程需要被唤醒)、 CONDITION (线程在条件队列里面等待〉、 PROPAGATE (释放共享资源时需要通知其他节点〕; prev 记录当前节点的前驱节点, next 记录当前节点的后继节点 。
+
+在 AQS 中 维持了 一 个 单 一 的状态信息 state,可以通过 getState 、 setState 、compareAndS etState 函数修改其值 。 对于 Reentran tLock 的 实 现来说, state 可以用 来表示当 前线 程获取 锁的可 重入次数 ;对于 读写锁 ReentrantReadWri teLock 来说 , state 的 高 16位表示读状态,也就是获取该读锁的次数,低 16 位表示获取到写锁的线程的可重入次数;对于 semaphore 来说, state 用来表示当前可用信号的 个 数:对于 CountDownlatch 来说,state 用 来表示计 数器当前的值 。
+
+AQS 有个内 部类 ConditionObject , 用来结合锁实现线程同步 。 ConditionObject 可以直接 访问 AQS 对 象 内部的 变量 ,比如 state 状 态值和 AQS 队 列。 C onditionObject 是条 件变量 , 每 个条件 变量对应 一 个 条 件队列 (单向链表队列),其用来存放调用条件变 量 的await 方法后被阻塞的线程,如类图所示 , 这个条件队列的头、尾元素分别为 自rstWaiter 和lastWaiter 。
+
+对于 AQS 来说,线程同步的关键是对状态值 state 进行操作 。 根据 state 是否属于 一个线程,操作 state 的 方式分为独占方式和共享方式 。 在独占方式下获取和释放资源使用的方法为 : void acquire( int arg) void acquirelnterruptibly(int arg) boolean release( int arg) 。
+
+在共享方式下获取和释放资源的方法为: void acquireShared(int arg) vo idacqt山eSharedinterruptibly(int a电) boolean 时 easeShared(int arg) 。
+
+使用独占方式获取的资源是与具体线程绑定的,就是说如果 一 个 线程获取到了资源,就会标记是这个线程获取到了,其他线程再尝试操作 state 获取资源时会发现当前该资源不是自己持有的,就会在获取失败后被阻塞 。 比 如独占锁 ReentrantLock 的 实 现, 当 一 个线程获取了 Reer rantLock 的锁 后,在 AQS 内 部会首先使用 CA S 操作把 state 状 态值从 0变为 1 ,然后设置当前锁的持有者为当前线程,当该线程再次获取锁时发现它就是锁的持有者 ,则 会把状态值从 l 变为 2 ,也就是设置可重入次数,而当另外 一 个线程获取锁时发现自己并不是该锁的持有者就会被放入 AQS 阻塞队列后挂起 。
+
+对应共享方式的资源与具体线程是不相关的,当多个线程去请求资源时通过 CAS 方式竞争获取资源,当 一 个线程获取到了资源后,另 外 一 个 线程再次去获取 时如果 当前资源还能满足它的需要,则当前线程只需要使用 CAS 方式进行获取即可 。 比 如 Semaphore 信号量 , 当一个线程通过 acquire() 方法获取信号 量 时,会首先看当前信号 量个数是否满足需要, 不 满足则把 当 前 线程放入阻塞队列,如果满足 则通过 自旋 CAS 获取信号 量。
+
+在独占方式下 , 获取与 释放 资 源的流程如下 :
+( 1 )当 一 个线程调用 acquire(int arg) 方 法 获 取独占 资 源时,会 首 先使用 tryAcquire 方法尝试获取资源, 具 体是设置状态变 量 state 的值,成功则 直 接返回,失败则将当前线程封装为类型为 Node. EXCLUSIVE 的 Node 节点后插入到 AQS 阻 塞 队列的尾部,并调用LockSupport. park( this) 方法挂起自己 。
+
+![image-20210226220853037](image-20210226220853037.png)
+
+![image-20210226220932029](image-20210226220932029.png)
+
+![image-20210226220955497](image-20210226220955497.png)
+
+![image-20210226221020537](image-20210226221020537.png)
+
+![image-20210226221047706](image-20210226221047706.png)
+
+
+
