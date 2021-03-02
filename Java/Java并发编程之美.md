@@ -186,3 +186,318 @@ AQS 有个内 部类 ConditionObject , 用来结合锁实现线程同步 。 Con
 ![image-20210226223423118](./images/image-20210226223423118.png)
 
 ![image-20210226223445162](./images/image-20210226223445162.png)
+
+
+
+## ReentrantLock
+
+## ReentrantReadWriteLock
+
+## StampedLock
+
+### 写锁 writeLock
+
+writeLock是 一 个排它锁或者独占锁,某时只有 一 个线程可以获取该锁, 当二 个线程获取该锁后,其他请求读锁和写锁的线程必须 等待 ,这类似于ReentrantReadWriteLock 的写锁(不同的是这里的写锁是不可重入锁) ; 当目前没有线程持有读锁或者写锁 时 才可以获取到该锁 。 请求该锁成功后会返回一个 stamp 变量用来表示该锁的版本,当释放该锁时需要调用 unlockWrite 方 法并传递获取锁时的 stamp 参数 。并且它提供了 非阻塞 的 tryWriteLock 方法 。
+
+### 悲观读锁readLock
+
+是一个共享锁 ,在没有线程获取独占写锁的情况下,多个线程可以同时获取该锁 。如果己经有线程持有 写 锁,则其他线程请求获取该读锁会被阻塞,这类似于 ReentrantReadWriteLock 的读锁 (不同的是这里的读锁是不可重入锁〉。这里说的悲观是指在 具体操 作数据前其会悲观地认为其他线程可能要对自己操作的数据进行修改,所以需要先对数据加锁,这是在读少写多的情况下的一种考虑 。请求该锁成功后会返回 一个 stamp 变量 用来 表示该锁 的版本,当释放该锁时需要调用unlockRead 方法并传递 stamp 参数。并且它提供了非阻塞的 tryReadLock 方法 。
+
+### 乐观读锁tryOptimisticRead
+
+它是相对于悲观锁来说的,在操作数据前并没有通过CAS 设置锁的状态,仅仅通过位运 算测试。如果当前没有线程持有写锁 ,则 简单地返回 一 个非 0 的 sta mp 版本信息 。 获取该 stamp 后在具体操作数据前还需要调用validate 方法验证 该 stamp 是否己经不可用,也就是看当调用 trγOptimisticRead 返回stamp 后到 当前 时间期间是 否有其 他 线程持有了写锁,如果是则 validate 会返回 o ,否则就可以使用该 stamp 版本的锁对数据进行操作 。 由于 tryOptimisticRead 并没有使用 CAS 设置锁状态,所以不需要显式地释放该锁 。 该锁的 一 个特点是适用于 读多写少的场 景 , 因为获取读锁只是使用位操作进行检验,不涉及 CAS 操作,所以效率会高很多,但是同时由于没有使用真正的锁,在保证数据 一致性上需要复制 一份要操作的变 量 到方法钱,并且在操作数据时可能其他写线程己经修改了数据,而我们 操作的是方法战里面的数据,也就是 一个快照,所以 最多返回 的不是最新的数据,但是一致 性还是得到保障的 。
+
+StampedLock 还 支持这三种锁在 - 定条件下进行相互转换 。 例如 longtryConvertTo WriteLock(long stamp) 期望把 stamp 标示的锁升级为写锁 , 这个函数会在下面几种情况下返回 一 个有效的 stamp ( 也就是晋升写锁成功) :
+
+·当前锁己 经是写 锁模式了 。
+·当前锁 处于 读锁模式, 并且没有其他线程是读锁模式
+·当 前处于乐观读模式,井且当前写锁可用 。
+
+另外, StampedLock 的读写锁都是不可重入锁,所以在获取锁后释放锁前不应该再调用 会获取 锁的操作,以避免造成调用线程被阻 塞。当多 个线程同时 尝 试获取读锁和写锁时,谁先 获取锁没有一定 的规则,完全都 是尽力而为,是随机的 。并 且该锁不是直接实现Lock 或 ReadWriteLock 接口 ,而是其在 内部自己维护了 一 个双 向阻塞 队列 。
+
+![image-20210228031926798](./images/image-20210228031926798.png)
+
+![image-20210228032014855](./images/image-20210228032014855.png)
+
+
+
+PS:
+
+
+
+![image-20210228032701982](./images/image-20210228032701982.png)
+
+
+
+
+
+## 并发队列
+
+阻塞队列：使用锁实现
+
+非阻塞队列：使用CAS非阻塞算法实现
+
+### ConcurrentLinkedQueue
+
+是线程安全的无界非阻塞队列，其底层数据结构使用单项链表实现，对于入队和出队操作使用CAS来实现线程安全.
+
+ 
+
+### LinkedBlockingQueue
+
+使用独占锁实现的阻塞队列
+
+1.当调 用 线程在 LinkedBlockingQueue 实例上执行 take 、 poll 等操作 时 需要获取到takeLock 锁,从 而 保证 同时 只有 一个线程可 以 操作链表头节点 。 另外由于条件变量notEmpty 内部的条件队列的维护使用的是 takeLock 的锁状态管理机制,所以在调用 notEmpty 的 await 和 s ignal 方法前调用线程必须先获取到 takeLock 锁,否则会抛出 IllegalMonitorStateException 异常。 notEmpty 内 部 则 维护着一个条件队列,当线程获取到 takeLo ck 锁后调用 notEmpty 的 await 方法时,调用线程会被阻塞,然后该线程会被放到 notEmpty 内部的条件队列进行等待,直到有线程调用了 notEmpty的 signal 方法。
+
+2.在 LinkedBlockingQueue 实例上执行 put 、 offer 等操作时需要获取到 putLock锁,从而保证 同 时只有一 个 线程可以操作链表尾节点。同样由于条件变量notFull 内 部 的 条 件 队列 的 维护使用的是 putLock 的锁状态管理 机 制,所以在调用notFull 的 await 和 si gnal 方法前调用线程必须先获取到 putLock 锁,否 则 会抛出IllegalMonitorStateException 异常。 notFull 内部 则 维护着一 个 条件队列,当线程获取到 putLock 锁后调用 notFull 的 await 方法时,调用线程会被阻塞 , 然后该线程会被放到 notFull 内 部 的 条件队列进行等待,直到有线程调用了 notFull 的 signal 方法。
+
+#### offer操作
+
+向队列尾部插入一个元素，如果队列中有空闲则插入成功后返回true，如果队列已满则丢弃当前元素然后返回false。如果e元素为null则抛出NPE异常。另外，该方法是非阻塞的.offer方法通过使用putLock锁保证了在队尾新增元素操作的原子性。另外，调用条件变量的方法前一定要记得获取对应的锁，并且注意进队时只操作队列链表的尾节点.
+
+#### put操作
+
+向队列尾部插入一个元素，如果队列中有空闲则插入后直接返回，如果队列已满则阻塞当前线程，直到队列有空闲插入成功后返回。如果在阻塞时被其它线程设置了中断标志，则被阻塞线程会抛出InterruptedException异常而返回。另外，如果e元素为null则抛出NPE异常.由于put操作是使用putLock.lockInterruptibly()获取独占锁，相比在offer方法中获取独占锁的方法可以被中断。具体来说就是当前线程在获取锁的过程中，如果被其它线程设置了中断标志则当前线程会抛出InterruptedException异常，所以put操作在获取锁的过程中是可以被中断的.代码如下:
+
+```java
+public static void main(String[] args) throws InterruptedException {
+        BlockingQueue<Object> queue = new LinkedBlockingQueue<>(3);
+        queue.put("");
+        queue.put("");
+        queue.put("");
+        Thread putTh = new Thread(() -> {
+            try {
+                queue.put("lock");
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }, "put");
+        putTh.start();
+        TimeUnit.MILLISECONDS.sleep(500);
+        new Thread(() -> {
+            putTh.interrupt();
+        }, "putTh-interrupt-th").start();
+        while (Thread.activeCount() > 2) {
+        }
+        System.out.println("done");
+    }
+```
+
+![image-20210301011944647](./images/image-20210301011944647.png)
+
+
+
+#### poll操作
+
+从队列头部获取并移除一个元素，如果队列为空则返回null，该方法是不阻塞的.poll操作获取元素时只操作了队列的头节点.
+
+#### peek操作
+
+获取队列头部元素但是不从队列里面移除它，如果队列为空则返回null。该方法是不阻塞的.
+
+#### take操作
+
+获取当前队列头部元素并从队列里面移除它。如果队列为空则阻塞当前线程直到队列不为空然后返回元素 ，如果在阻塞时被其它线程设置了中断标志，则阻塞线程会抛出InterruptedException异常而返回.
+
+#### remove操作
+
+删除队列里面指定的元素，有则删除并返回true，没有则返回false.由于remove方法在删除指定元素前了两把锁，所以在遍历队列查找指定元素的过程中是线程安全的，并且此时其它调用入队、出队操作的线程全部会被阻塞。另外，获取多个资源所的顺序与释放锁的顺序是相反的.
+
+![image-20210301015531577](./images/image-20210301015531577.png)
+
+
+
+![image-20210301015559639](./images/image-20210301015559639.png)
+
+
+
+#### size操作
+
+由于出入队操作时的count是加了锁的，所以结果相比ConcurrentLinkedQueue的size方法比较准确。这里考虑为何在ConcurrentLinkedQueue中需要遍历链表来获取size而不使用一个变量呢？这是因为使用原子变量保存队列元素个数需要保证入队、出队操作和原子变量操作是原子性操作，而ConcurrentLinkedQueue使用的是CAS无锁算法，所以无法做到这样.
+
+总结:
+
+LinkedBlockingQueue 的内部是通过单向链表实现的,使用头、尾节点来进行入队和出队操作,也就是入队操作都是对尾节点进行操作,出队操作都是对头节点进行操作 。如图 7-29 所示,对头、尾节点的操作分别使用了单独的独占锁从而保证了原子性,所以出队和入队操作是可以同时进行的 。 另外对头 、 尾节点的独占锁都配备了一个条件队列,用来存放被阻塞的线程,并结合入队、出队操作实现了 一个生产消费模型 。
+
+![image-20210301020107852](./images/image-20210301020107852.png)
+
+
+
+### ArrayBlockingQueue
+
+如图 7 - 31 所示, ArrayBlockingQueue 通过使用全局独占锁实现了同时只能有 一 个 线程进行入队或者出队操作,这个锁的粒度比较大,有点类似于在方法上添加 synchronized的意思 。 其中 。他r 和 poll 操作通过简单的加锁进行入队、出队操作,而 put 、 take 操作则使用条件变量实现了,如果队列满则等待,如果队列空则等待,然后分别在出队和入队操作中发送信号激活 等待线程实 现同步 。另 外,相比 LinkedBlockingQueue,ArrayB lockingQueue 的 size 操作的结果是精确的 , 因为计算前加了全局锁。
+
+![image-20210301023503800](./images/image-20210301023503800.png)
+
+### PriorityBlockingQueue
+
+PriorityBlockingQueue是带优先级的无界阻塞队列，每次出队都返回优先级最高或者最低的元素。其内部是使用平衡二叉树堆实现的，所以直接遍历队列元素不保证有序。默认使用对象的compareTo方法提供比较规则.
+
+Priority B locki ngQueue 内 部有一个数组 queue ,用来存放队列元素,size 用来存放队列元素个数 。 allocations pi nLock 是个自旋锁,其使用 CAS 操作来保证同时只有 一 个线程可以扩容队列,状态为 0 或者 1 ,其中 0 表示当前没有 进行扩 容, l 表示当前正在扩容。由于这是 一 个优先级队列,所以有 一个 比较器 comparator 用来比较元 素大 小 。 lock 独占锁对象用来控制同时只能有一个线程 可以进行 入队、出队操作。 notEmpty 条件变量用来实现 take 方法阻塞模式。这里没有 notFull 条件变量是因为这里的 put 操作是非阻塞的,为啥要设计为非阻塞的,是因为这是无界队列。在如下构造函数中,默认队列容量为 11 ,默认比较器为 null ,也就是使用元素的compare To 方法进行 比 较来确定元素的优先级 , 这意味着队列元素必须实现了 Co mparable接口
+
+#### offer操作
+
+offer操作的作用是在队列中插入一个元素，由于是无界队列，所以一直返回true。如下是offer代码:
+
+![image-20210301030735964](./images/image-20210301030735964.png)
+
+扩容代码:
+
+![image-20210301030822950](./images/image-20210301030822950.png)
+
+##### 扩容算法
+
+tryGrow 的作用 是扩容 。 这 里为啥在 扩容前要先释放锁,然后使用 CAS 控制只有 一个线程可以扩容成功?其实这里不先释放锁,也是可行的,也就是在整个扩容期间 一直 持有锁,但是扩容是需要花时间的,如果扩容时还占用锁那么其他线程在这个时候是不能进行出 队 和 入队操作的 , 这大大降低 了并发性。 所以 为了提高 性 能 , 使用 CA S 控制只有 一 个线程可 以 进行扩容,并且在扩容前释放锁,让其 他线程 可以 进行入队和出队操作 。
+
+spinlock 锁使用 CA S 控制只有一 个 线程 可以 进行扩容, CAS 失败的线程会调用Thread.yield() 让出 CPU , 目的是让扩容线程扩容后 优 先调 用 lock.lock 重新获取锁,但是这得不到保证。有可能 yield 的 线程在扩容线程扩 容完成前己经退 出, 并执行代码( 6 )获取到了锁 , 这时候获取到锁的线程发现 newArray 为 null 就会执行代码 (1)。如果当前数组扩容还没完毕 , 当前线程会再次调用 tryGrow 方法 , 然后释放锁 , 这又给扩容线程获取锁 提 供了机会 ,如 果这 时 候扩容线程还没扩容完毕 ,则 当 前 线程释放 锁 后又调用 yield 方法让出 CPU 。所以当扩容线程进行扩容 时, 其他线程原地自旋通过代码( 1 )检查当前扩容是否完毕,扩容完毕后才退 出 代码 (1) 的 循环。
+
+扩容线程扩容完毕后会重置自旋锁变量 allocationSpinLock 为 0 ,这里并没有使用 UNSAFE 方法的 CAS 进行设置是因为 同时 只可 能 有一个线程获取到该锁 , 并且allocationSpinLock 被修饰 为 了 volatile 的。当扩容线程扩容完毕后会执行代码 (6) 获取锁,获取锁后复制当前 queue 里面 的 元素 到 新数组。
+
+##### 建堆算法
+
+![image-20210301031108317](./images/image-20210301031108317.png)
+
+
+
+下面用图来解释上面算法过程,假设队列初始化容量为 2 ,创建的优先级队列的泛型参数为 Integer 。
+I. 首先调用队列 的 offer(2) 方法,希望 向队列 插入元素 2 ,插入前 队 列状态如下所示 :
+
+![image-20210301032821990](./images/image-20210301032821990.png)
+
+首先执行代码 ( 1 ),从 图 中的 变量值 可 知判断结果为 fa lse ,所以 紧接着执行代码。〉。由于 k=n=size=O ,所以代码( 7) 的判断结果为 false ,因此会执行代码 ( 8 )直接把元素 2 入队 。最后执行代码( 9 )将 s ize 的 值加 1 , 这时候队列的状态如下所示 :
+
+![image-20210301032859501](./images/image-20210301032859501.png)
+
+II. 第二次调用队列的 o ffer(4)时, 首先执 行代码 Cl ),从图中的变量值可知判断结果为 false ,所以执行代码( 2 ) 。由于 k= l ,所以进入 while 循环,由于 parent=O;e=2 ; key=4 ;默认元素 比 较器使用元素的 compareTo 方法,可知 key> e ,所以执行 break 退出siftUpComparable 中的循环,然后把元素存到数组下标为 1 的地方 。 最后执行代码( 9 )将size 的 值加 l , 这 时候队列状态如下所示:
+
+![image-20210301032938630](./images/image-20210301032938630.png)
+
+III. 第三次调用队列的 offer(6)时, 首先执行代码 (1 ) ,从 图中的变量值知道 ,这时候判断结果为 true ,所以调用 tryGrow 进行数组扩容 。 由于 2<64 ,所以执行 newCap=2 +(2+2)=6 , 然后创建新数组井复制,之后调用 s iftUpComparable 方法 。 由于 k=2>0 , 故进入while 循环,由于 parent=O ;e=2;key=6 ;key>e , 所以执行 break 后退出 while 循环 , 并把元素6 放入数组下标为 2 的地方 。 最后将 s ize 的值加 l ,现在队列状态如下所示 :
+
+![image-20210301033017273](./images/image-20210301033017273.png)
+
+IV. 第四次调用队列 的 offer(l )时, 首先执行 代 码 Cl ),从图中的 变量值知道 ,这次判断结果为 fa l se , 所以执行代 码( 2 ) 。 由于 k=3 ,所以进入 while 循 环,由于parent= I ;e=4;key= 1; key句,所以把元 素 4 复 制到数组下标为 3 的地方 。然后 执行 k= l ,再次循环 , 发现 e=2,key= l , key句,所以 复 制元素 2 到数组下标 l 处 , 然后 k=O 退出循环 。最后 把元素 l 存放到下标为 0 的地方,现在 的状态如下所示 :
+
+![image-20210301033055111](./images/image-20210301033055111.png)
+
+#### poll操作
+
+poll操作的作用是获取队列内部堆树的根节点元素，如果队列为空，则返回null.
+
+![image-20210301035200716](./images/image-20210301035200716.png)
+
+![image-20210301035233036](./images/image-20210301035233036.png)
+
+
+
+#### put操作
+
+内部操作调用的是offer操作，由于是无界队列，所以不需要阻塞.
+
+#### take操作
+
+take操作的作用是获取队列内部堆树的根节点元素，如果队列为空则阻塞.
+
+#### size操作
+
+计算队列元素个数。如下代码在返回size前加了锁，以保证在调用size()方法时不会有其它线程进行入队和出队操作。另外，由于size变量没有被修饰为volatile，所以这里加锁也保证了在多线程下size变量的内存可见性.
+
+![image-20210301034811014](./images/image-20210301034811014.png)
+
+
+
+总结：
+
+PriorityBlockingQueue队列在内部使用二叉树堆维护元素优先级，使用数组作为元素存储的数据结构，这个数组是可扩容的。当当前元素个数>=最大容量时会通过CAS算法扩容，出队时始终保证出队的元素是堆树的根节点，而不是在队列里面停留时间最长的元素。使用元素的compareTo方法提供默认的元素优先级比较规则，用户可以自定义优先级的比较规则。
+
+如稀土所有，PriorityBlockingQueue类似与ArrayBlockingQueue，在内部使用一个独占锁来控制同时只有一个线程可以进行入队和出队操作。另外，前者只使用了一个notEmpty条件变量而没有使用notFull，这是因为前者是无界队列，执行put操作时永远不会处于await状态，所以也不需要被唤醒。而take方法是阻塞方法，并且可被中断的。当需要有存放优先级的元素时，该队列比较有用。
+
+![image-20210301040255553](./images/image-20210301040255553.png)
+
+
+
+### DelayQueue
+
+DelayQueue并发队列是一个无界阻塞延迟队列，队列中的每个元素都有个过期时间，当从队列获取元素时，只有过期元素才回出队列。队列头元素时最快要过期的元素.
+
+DelayQueue 内部使用 PriorityQueue 存放数据,使用 ReentrantLock 实现线程同步 。另 外,队列里面的元素要实现 De layed 接口,由于每个元素都有一个过期时间 ,所以要实现获知当前元素还剩下多少时 间 就过期了的接口,由于内部使用优先级队列来实现,所以要实现元素之间相互比较的接口。
+
+![image-20210301041343886](./images/image-20210301041343886.png)
+
+
+
+## ThreadPoolExecutor
+
+• RUNNING : 接受新任务并且处理阻塞队列里的任务 。
+• SHUTDOWN :拒 绝新任务但是处理阻塞 队列里的任务 。
+• STOP :拒 绝新任务并且抛 弃阻塞 队列 里 的任 务 ,同时会中断正在 处理的任务。
+• TIDYING : 所有任务都执行完(包含阻塞 队列里面的任务)后当前线程池活动线程数为 0 , 将要调用 terminated 方法 。
+• TERMINATED : 终止状态 。 terminated 方法调用完成 以后的状态 。
+
+线程池状态转换列举如下 。
+• RUNNING -> SHUTDOWN : 显式调用 shutdown () 方法 , 或者隐式调用了 finalize()方法里面的 shutdown() 方法 。
+• RUNNING 或 SHUTDOWN)-> STOP : 显式调用 shutdownNow() 方法 H寸 。
+• SHUTDOWN -> TIDY ING : 当线程池和任务队列都为空时 。
+• STOP -> TIDYING : 当线程池为空时 。
+• TIDY时 G-> TERM剧 ATED : 当 terminated() hook 方法执行完成 时 。
+
+线程池参数如下 。
+• corePoo l Size :线程池 核 心线 程个 数。
+• workQueu e :用于保存等待执行的任务的阻 塞 队列,比如基于数组的有界ArrayBlock ingQueue 、基于链表的无界 LinkedBlockingQueue 、最多只有 一 个元素的同步队列 SynchronousQueue 及优先级队列 Priority B lockingQueue 等。
+• maximunPoolSize : 线程池最大线程数量。
+• ThreadFactory :创 建线程的工厂 。
+• RejectedExecutionHandler :饱和 策略 , 当 队列满并且线程个数达到 maximunPoolSize后采取 的 策略,比如 AbortPolicy (抛出异常〉、 CallerRunsPolicy (使用调用者所在线程 来运行任 务) 、 DiscardOldestPolicy (调用 poll 丢弃 一 个任务,执行当前任务)及 DiscardPolicy (默默丢弃,不抛出异常〉
+• keeyAliveTime :存 活时间 。 如果当前线程池中的线程数量比核心线程数量 多 ,并且是 闲置状态, 则这 些闲置的线程能存活的最大时间 。
+• TimeUnit : 存活时间的时间单位 。
+
+线程池类型:
+
+• newFixedThreadPool :创 建 一 个核心线程个数和最大线程个数都为 nThreads 的线程池,并且阻 塞 队列 长度为 Integer.MAX_VALUE。keepAliveTime=0说明只要线程个数比核 心 线程个数多并且当前空闲 则 回收。
+
+```java
+public static ExecutorService newFixedThreadPool(int nThreads) {
+    return new ThreadPoolExecutor(nThreads, nThreads,
+                                  0L, TimeUnit.MILLISECONDS,
+                                  new LinkedBlockingQueue<Runnable>());
+}
+public static ExecutorService newFixedThreadPool(int nThreads, ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>(),
+                                      threadFactory);
+    }
+```
+
+•newSingleThreadExecutor : 创建一个核 心 线程个数和最大线程个数 都为 1 的线程池 ,并且阻塞队列长度为 Integer.MAX_VALUE 。 keeyA li veTime=O 说明只要线程个数比核 心 线程个数多并且当前空闲 则 回收。
+
+```java
+public static ExecutorService newSingleThreadExecutor() {
+    return new FinalizableDelegatedExecutorService
+        (new ThreadPoolExecutor(1, 1,
+                                0L, TimeUnit.MILLISECONDS,
+                                new LinkedBlockingQueue<Runnable>()));
+}
+public static ExecutorService newSingleThreadExecutor(ThreadFactory threadFactory) {
+        return new FinalizableDelegatedExecutorService
+            (new ThreadPoolExecutor(1, 1,
+                                    0L, TimeUnit.MILLISECONDS,
+                                    new LinkedBlockingQueue<Runnable>(),
+                                    threadFactory));
+    }
+```
+
+•newCachedThreadPoo l : 创建 一 个按需创建线程的线程池,初始线程个数为 0 , 最多线程个数为 Integer. MA X_VALUE ,并且阻塞队列为同步队列 。 keeyAli v eTime=60说明只要当前线程在 60s 内空闲则回收。这个类型的特殊之处在于 , 加入同步队列的 任务会被马上执行,同步队列里面最多只有 一 个任务。
+
+```java
+public static ExecutorService newCachedThreadPool() {
+    return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                  60L, TimeUnit.SECONDS,
+                                  new SynchronousQueue<Runnable>());
+}
+public static ExecutorService newCachedThreadPool(ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                      60L, TimeUnit.SECONDS,
+                                      new SynchronousQueue<Runnable>(),
+                                      threadFactory);
+    }
+```
