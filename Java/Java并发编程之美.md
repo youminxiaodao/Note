@@ -426,7 +426,7 @@ DelayQueue 内部使用 PriorityQueue 存放数据,使用 ReentrantLock 实现�
 
 
 
-## ThreadPoolExecutor
+### ThreadPoolExecutor
 
 • RUNNING : 接受新任务并且处理阻塞队列里的任务 。
 • SHUTDOWN :拒 绝新任务但是处理阻塞 队列里的任务 。
@@ -501,3 +501,227 @@ public static ExecutorService newCachedThreadPool(ThreadFactory threadFactory) {
                                       threadFactory);
     }
 ```
+
+
+
+### ScheduledThreadPoolExecutor
+
+#### ScheduledFutureTask
+
+ScheduledFutureTask是具有返回值值的任务，继承自FutureTask。FutureTask的内部有一个变量state用来表示任务的状态，一开始为NEW，以下为所有状态:
+
+![image-20210305173324937](./images/image-20210305173324937.png)
+
+可能的任务状态转换路径为:
+
+![image-20210305173350791](./images/image-20210305173350791.png)
+
+ScheduledFutureTask内部还有一个变量period用来表示任务的类型，任务类型如下:
+
+period=0，说明当前任务是一次的，执行完毕后就退出了;
+
+period为负数，说明当前任务为fixed-delay任务，是固定延迟的定时可重复执行任务。
+
+period为正数，说明当前任务为fixed-rate任务，是固定频率的定时可重复执行任务.
+
+源码注释:
+
+![image-20210305173900824](./images/image-20210305173900824.png)
+
+#### ScheduledThreadPoolExecutor构造器
+
+ScheduledThreadPoolExecutor构造器如下:
+
+![image-20210305174047543](./images/image-20210305174047543.png)
+
+
+
+![image-20210305174244145](./images/image-20210305174244145.png)
+
+![image-20210305174303402](./images/image-20210305174303402.png)
+
+都是调用父类ThreadPoolExecutor的构造方法，且BlockingQueu均为DelayWorkQueue
+
+![image-20210305174346476](./images/image-20210305174346476.png)
+
+
+
+#### ScheduledThreadPoolExecutor方法
+
+##### schedule
+
+该方法的作用是提交一个延迟执行的任务，任务从提交时间算起，延迟单位是uint，delay时间后开始执行，提交的任务是单次任务.
+
+![image-20210305174921501](./images/image-20210305174921501.png)
+
+![image-20210305174830652](./images/image-20210305174830652.png)
+
+![image-20210305174856704](./images/image-20210305174856704.png)
+
+##### scheduleWithFixedDelay
+
+该方法的作用是，当任务执行完毕后，让其延迟固定时间后再次运行(fixed-delay任务)。其中initialDelay表示提交任务后延迟多少时间开始执行任务command，delay表示当任务执行完毕后延长多少时间后再次运行command任务，uint是initialDelay和delay的时间单位。任务会一直重复运行直到任务运行中抛出了异常，被取消了，或者关闭了线程池.
+
+![image-20210305181300180](./images/image-20210305181300180.png)
+
+当添加一个任务到延迟队列后，等待initialDelay时间，任务就会过期，过期的任务就会被从队列移除，并执行。执行完毕后，会重新设置任务的延迟时间，然后再把任务放入延迟队列，循环往复。需要注意的是，如果一个任务在执行中抛出了异常，那么这个任务就结束了，但是不影响其它任务的执行.
+
+
+
+##### scheduledAtFixedRate
+
+该方法相对起始时间点以固定频率调用指定的任务(fixed-rate任务)。当把任务提交到线程池并延迟initialDelay时间(时间单位为unit)后开始执行任务command。然后从initialDelay+period时间点再次执行，而后在initialDelay+2*period时间点再次执行，循环往复，直到抛出异常或者调用了任务的cancel方法取消了任务，或者关闭了线程池。scheduledAtFixedRate的原理与scheduledWithFixedDelay类似.
+
+![image-20210305184027567](./images/image-20210305184027567.png)
+
+相对于fixed-delay任务来说，fixed-rate方式执行规则为，时间为initialDelay+n*period时启动任务，但是如果当前任务还没有执行完，下一次要执行任务的时间到了，则不会并发执行，要等到当前任务执行完毕后再执行.
+
+- ScheduledExecutorService#scheduleAtFixedRate() 指的是“以固定的频率”执行，period（周期）指的是两次成功执行之间的时间。上一个任务开始的时间计时，一个period后，检测上一个任务是否执行完毕，如果上一个任务执行完毕，则当前任务立即执行，如果上一个任务没有执行完毕，则需要等上一个任务执行完毕后立即执行。
+- ScheduledExecutorService#scheduleWithFixedDelay() 指的是“以固定的延时”执行，delay（延时）指的是一次执行终止和下一次执行开始之间的延迟。
+
+##### 代码验证schedule,scheduledAtFixedRate和scheduledWithFixedDelay
+
+```java
+public class TestScheduledThreadPoolExecutor {
+    public static void main(String[] args) {
+        int coreSize = 2;
+        System.out.println("任务执行前时间:" + new Date());
+//        testSchedule(coreSize);
+        testScheduledAtFixedRate(coreSize);
+//        testScheduleWithDelay(coreSize);
+    }
+
+    public static void testScheduleWithDelay(int coreSize) {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(coreSize);
+        int initialDelay = 3;
+        int period = 5;
+        System.out.println("从当前时间:" + new Date() + "起后的" + initialDelay + "秒，以周期为" + period + "秒，运行任务-------开始");
+        //获取到的Runnable中，故意延迟10秒，以scheduleWithFixedDelay方式加入定时任务池，将会在3秒后启动任务，运行了10秒后(模拟任务超时)，再启动下一个任务
+        //结果:
+        //任务执行前时间:Fri Mar 05 19:26:31 CST 2021
+        //从当前时间:Fri Mar 05 19:26:31 CST 2021起后的3秒，以周期为5秒，运行任务-------开始
+        //从当前时间:Fri Mar 05 19:26:31 CST 2021起后的3秒，以周期为5秒，运行任务-------结束
+        //当前时间:Fri Mar 05 19:26:34 CST 2021
+        //当前时间:Fri Mar 05 19:26:49 CST 2021
+        //当前时间:Fri Mar 05 19:27:04 CST 2021
+//        executor.scheduleWithFixedDelay(getRunnable2(), initialDelay, period, TimeUnit.SECONDS);
+        //获取到的Runnable中，故意延迟3秒，以scheduleWithFixedDelay方式加入定时任务池，将会在3秒后启动任务，运行了3秒后(模拟任务提前完成)，再启动下一个任务
+        //结果:
+        //任务执行前时间:Fri Mar 05 19:29:01 CST 2021
+        //从当前时间:Fri Mar 05 19:29:01 CST 2021起后的3秒，以周期为5秒，运行任务-------开始
+        //从当前时间:Fri Mar 05 19:29:01 CST 2021起后的3秒，以周期为5秒，运行任务-------结束
+        //当前时间:Fri Mar 05 19:29:04 CST 2021
+        //当前时间:Fri Mar 05 19:29:12 CST 2021
+        //当前时间:Fri Mar 05 19:29:20 CST 2021
+        //当前时间:Fri Mar 05 19:29:28 CST 2021
+        //当前时间:Fri Mar 05 19:29:36 CST 2021
+        executor.scheduleWithFixedDelay(getRunnable3(), initialDelay, period, TimeUnit.SECONDS);
+        System.out.println("从当前时间:" + new Date() + "起后的" + initialDelay + "秒，以周期为" + period + "秒，运行任务-------结束");
+    }
+
+    /**
+     * 固定时间频率任务
+     *
+     * @param coreSize
+     */
+    public static void testScheduledAtFixedRate(int coreSize) {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(coreSize);
+        int initialDelay = 3;
+        int period = 5;
+        System.out.println("从当前时间:" + new Date() + "起后的" + initialDelay + "秒，以周期为" + period + "秒，运行任务-------开始");
+        //获取到的Runnable中，故意延迟10秒，以scheduleAtFixedRate方式加入定时任务池，将会在3秒后启动任务，运行了10秒后(模拟任务超时)，再启动下一个任务
+        //结果:
+        //任务执行前时间:Fri Mar 05 19:20:28 CST 2021
+        //从当前时间:Fri Mar 05 19:20:28 CST 2021起后的3秒，以周期为5秒，运行任务-------开始
+        //从当前时间:Fri Mar 05 19:20:28 CST 2021起后的3秒，以周期为5秒，运行任务-------结束
+        //当前时间:Fri Mar 05 19:20:31 CST 2021
+        //当前时间:Fri Mar 05 19:20:41 CST 2021
+        //当前时间:Fri Mar 05 19:20:51 CST 2021
+//        executor.scheduleAtFixedRate(getRunnable2(), initialDelay, period, TimeUnit.SECONDS);
+
+        //获取到的Runnable中，故意延迟3秒，以scheduleAtFixedRate方式加入定时任务池，将会在3秒后启动任务，运行了3秒后(模拟任务提前完成)，再启动下一个任务
+        //结果:即使提前完成，后续的任务，也不会提前启动，只能等到period结束
+        //任务执行前时间:Fri Mar 05 19:22:20 CST 2021
+        //从当前时间:Fri Mar 05 19:22:20 CST 2021起后的3秒，以周期为5秒，运行任务-------开始
+        //从当前时间:Fri Mar 05 19:22:20 CST 2021起后的3秒，以周期为5秒，运行任务-------结束
+        //当前时间:Fri Mar 05 19:22:23 CST 2021
+        //当前时间:Fri Mar 05 19:22:28 CST 2021
+        //当前时间:Fri Mar 05 19:22:33 CST 2021
+        executor.scheduleAtFixedRate(getRunnable3(), initialDelay, period, TimeUnit.SECONDS);
+        System.out.println("从当前时间:" + new Date() + "起后的" + initialDelay + "秒，以周期为" + period + "秒，运行任务-------结束");
+    }
+
+    /**
+     * 一次性延迟任务
+     *
+     * @param coreSize
+     */
+    public static void testSchedule(int coreSize) {
+        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(coreSize);
+        System.out.println("将定时任务加入定时线程池-----开始");
+        scheduledThreadPoolExecutor.schedule(getRunnable1(), 5, TimeUnit.SECONDS);
+        System.out.println("将定时任务加入定时线程池-----结束");
+        scheduledThreadPoolExecutor.shutdown();
+    }
+
+    /**
+     * 正常结束
+     *
+     * @return
+     */
+    public static Runnable getRunnable1() {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("当前时间:" + new Date());
+            }
+        };
+    }
+
+    /**
+     * 延迟10秒
+     *
+     * @return
+     */
+    public static Runnable getRunnable2() {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("当前时间:" + new Date());
+                try {
+                    //故意延迟3秒
+                    TimeUnit.SECONDS.sleep(10);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+    }
+
+    /**
+     * 延迟3秒
+     *
+     * @return
+     */
+    public static Runnable getRunnable3() {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("当前时间:" + new Date());
+                try {
+                    //故意延迟3秒
+                    TimeUnit.SECONDS.sleep(3);
+                    throw new NullPointerException();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+    }
+}
+```
+
+### java并发包中线程同步器原理
+
+
+
