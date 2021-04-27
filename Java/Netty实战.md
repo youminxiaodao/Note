@@ -127,3 +127,15 @@ public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception 
 
 
 
+### 连接池动态扩容
+
+
+
+### 空闲连接的释放
+
+
+
+
+
+### 线程膨胀
+

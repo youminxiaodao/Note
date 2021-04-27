@@ -10,6 +10,43 @@
 
 ​	一个线程可以从挂起状态变为可以运行状态(也就是被唤醒)，即使该线程没有被其它线程调用notify或者notifyAll方法进行通知，或者被中断，或者等待超时，这就是所谓虚假唤醒。需要使用while来不断测试线程被唤醒的条件是否满足.
 
+## sleep与yield的区别
+
+当线程调用sleep方法时调用线程会被阻塞挂起指定的时间，在这期间线程调度器不会去调度该线程。而调用yield方法时，线程只是让出自己剩余的时间片，并没有被阻塞挂起，而是出于就绪状态，线程调度器下一次调度时就有可能调度到当前线程执行.
+
+## interrupt、isInterrupted、interrupted区别
+
+void interrupt：中断线程，设置线程的中断标志为true，并立即返回，只是设置标志，线程实际没有被中断，仍会继续运行.
+
+boolean isInterrupted:检测当前线程是否被中断，如果是返回true，否则返回false
+
+```java
+public boolean isInterrupted(){
+    //false代表不清除中断标志
+    return isInterrupted(false);
+}
+```
+
+boolean interrupted:检测当前线程是否被中断，如果是返回true，否则返回false；与isInterrupted不同的是，该方法若发现当前线程被中断，则会清除中断标志，并且该该方法是static方法，可以通过Thread知己调用。在interrupted内部是获取当前调用线程的中断标志而不是调用interrupted方法的实例对象的中断标志.
+
+```java
+public static boolean interrupted(){
+    //清除中断标志
+    return currentThread().isInterrupted(true);
+}
+```
+
+
+
+## 线程中断
+
+java中的线程中断是一种线程间的协作模式，通过设置中断标志并不能直接终止该线程的执行，而是被中断的线程根据中断状态自行处理.
+
+## 操作系统中断
+
+ (1) 以两个进程并发运行为例，进程1在用户态运行了一段时间后，CPU会接收到计时部件（操作系统内核的时钟管理部件）发出的中断信号，表示进程1已经用完了一个时间片，CPU会切换到**核心态**，把CPU的使用权限交还给操作系统，操作系统内核就会对刚才的中断进行处理，操作系统知道进程1的时间片用完，就需要切换进程，在完成切换进程的一系列工作后，操作系统又会将CPU的使用权交还给用户进程。
+  (2) 接着进程2拿到CPU执行权就会在用户态下执行，进程2执行一段时间后，进程2发出系统调用（内中断信号），请求输出，主动要求操作系统介入工作，CPU会立即切换到**核心态**，把CPU的使用权限交还给操作系统，操作系统内核接管进程2系统调用请求，调用IO设备开始输出工作，然后操作系统交还CPU执行权，IO设备也会并行执行，进程2需要等待IO操作完成，所以进程1拿到CPU执行权开始运行。当执行一段时间后，IO操作完成，IO设备向CPU发送一个中断信号，此时CPU由用户态再次转换为核心态，对刚才的中断信号处理，由于IO操作完成，所以操作系统知道进程2可以恢复运行了，以完成后续工作，所以操作系统再次交还CPU执行权，让进程2再次运行。
+
 
 
 ## java内存模型(JMM)
@@ -140,6 +177,8 @@ LockSupport类与每个使用它的线程都会关联一个许可证，在默认
 
 AQS:AbstractQueuedSynchronizer抽象同步队列简称AQS，它是实现同步器的基础组件，并发包中锁的底层就是使用AQS实现的.
 
+![image-20210323155119814](C:\Develop\Git\Note\images\image-20210323155119814.png)
+
 ### AQS---锁的底层支持
 
 AbstractQueuedSynchronizer 抽象同步队列简称 AQS ,它是实现同步器的 基 础组件,并发包中锁的底层就是使用 AQS 实现的 。 另外,大多数开发者可能永远不会直接使用AQS ,但是知道其原理对于架构设计还是很有帮助的 。 下面看下 AQS 的类图 结 构,如图 6-1所示 。
@@ -227,7 +266,7 @@ PS:
 
 ![image-20210228032701982](./images/image-20210228032701982.png)
 
-
+StampedLock提供的读写锁与ReentrantReadWriteLock类似，只是前者提供的是不可重入锁。但是前者通过乐观读锁在多线程多读的情况下提供了更好的性能，这是因为获取乐观读锁时不需要进行CAS操作设置锁的状态，而只是简单地测试状态.
 
 
 
@@ -723,5 +762,535 @@ public class TestScheduledThreadPoolExecutor {
 
 ### java并发包中线程同步器原理
 
+#### CountDownLatch
 
+在日常开发中经常会遇到需要在主线程中开启多个线程并行执行任务，并且主线程需要等待所有子线程执行完毕后再进行汇总的场景，在CountDownLatch出现之前一般都是使用线程的join()方法来实现这一点，但是join方法不够灵活，不能满足不同场景的需要，如下case:
+
+```java
+class CountDownLatchSource extends Thread {
+    private String jobName;
+    private int timeout;
+    private CountDownLatch countDownLatch;
+
+    public CountDownLatchSource(String jobName, int timeout, CountDownLatch countDownLatch) {
+        this.jobName = jobName;
+        this.timeout = timeout;
+        this.countDownLatch = countDownLatch;
+    }
+
+    @Override
+    public void run() {
+        System.out.println("当前任务" + jobName + "-------开始");
+        try {
+            TimeUnit.SECONDS.sleep(timeout);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            countDownLatch.countDown();
+        }
+        System.out.println("当前任务" + jobName + "-------结束");
+    }
+}
+
+public class TestCountDownLatch {
+    public static void main(String[] args) throws InterruptedException {
+        int count = 2;
+        CountDownLatch countDownLatch = new CountDownLatch(count);
+        CountDownLatchSource jobA = new CountDownLatchSource("A", 4, countDownLatch);
+        CountDownLatchSource jobB = new CountDownLatchSource("B", 5, countDownLatch);
+        jobA.start();
+        jobB.start();
+        System.out.println("Waiting......");
+
+       /* jobA.join();
+        jobB.join();*/
+
+        countDownLatch.await();
+
+        System.out.println("Done!!!");
+    }
+}
+```
+
+##### CountDownLatch与join的区别
+
+相同点:都可以等待所有子线程执行完再汇总，最后再执行主线程任务
+
+区别:join()支持带有参数的重载方法join(long millions)，在等待millions后，就会返回；调用一个子线程的join()方法后，该线程会一直被阻塞直到子线程运行完毕，而CountDownLatch则使用计数器来允许子线程运行完毕或者在运行中递减奇数，也就是CountDownLatch可以在子线程运行的任何时候让await方法返回而不一定必须等到线程结束。另外，实际工程实践中，一半都是使用线程池来管理线程，使用线程池时一半都是直接添加Runnable或者Callable到线程池，这时候就没有办法再调用线程的join方法了，就是说CountDownLatch相比join方法让我们对线程同步有更灵活的控制.
+
+```java
+class CountDownLatchSource implements Runnable {
+    private String jobName;
+    private int timeout;
+    private CountDownLatch countDownLatch;
+
+    public CountDownLatchSource(String jobName, int timeout, CountDownLatch countDownLatch) {
+        this.jobName = jobName;
+        this.timeout = timeout;
+        this.countDownLatch = countDownLatch;
+    }
+
+    @Override
+    public void run() {
+        System.out.println("当前任务" + jobName + "-------开始");
+        try {
+            TimeUnit.SECONDS.sleep(timeout);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            countDownLatch.countDown();
+        }
+        System.out.println("当前任务" + jobName + "-------结束");
+    }
+}
+
+public class TestCountDownLatch {
+    public static void main(String[] args) throws InterruptedException {
+        ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(3, 5, 5, TimeUnit.SECONDS, new ArrayBlockingQueue<>(3),
+                Executors.defaultThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
+        int count = 2;
+        CountDownLatch countDownLatch = new CountDownLatch(count);
+        try {
+            CountDownLatchSource jobA = new CountDownLatchSource("A", 4, countDownLatch);
+            CountDownLatchSource jobB = new CountDownLatchSource("B", 5, countDownLatch);
+            System.out.println("Add to ThreadPool......Begin");
+            threadPoolExecutor.execute(jobA);
+            threadPoolExecutor.execute(jobB);
+            System.out.println("Add to ThreadPool......Done");
+            System.out.println("Waiting for all tasks complete");
+            countDownLatch.await();
+            System.out.println("All tasks complete");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            threadPoolExecutor.shutdown();
+        }
+        System.out.println("Done!!!");
+    }
+}
+```
+
+	##### 原理
+
+![image-20210307101653595](./images/image-20210307101653595.png)
+
+![image-20210307101808006](./images/image-20210307101808006.png)
+
+![image-20210307101839061](./images/image-20210307101839061.png)
+
+CountDownLatch是使用AQS实现的，通过构造函数，发现实际上是把计数器的值赋给了AQS的状态变量state，也就是这里使用AQS的状态值来表示计数器值.
+
+##### 方法
+
+1. void await()
+
+当线程调用CountDoenLatch对象的await方法后，当前线程会被阻塞，直到以下情况之一发生才回返回:当所有线程都调用了CountDownLatch对象的countDown方法后，也就是计数器的值为0时；其它线程调用了当前线程的interrupt()方法中断了当前线程，当前线程就会抛出InterruptedException异常，然后返回.
+
+2. void await(long timeout, TimeUnit unit)
+
+   当线程调用了CountDownLatch对象的该方法后，当前线程会被阻塞，直到下面的情况之一发生才会返回：当所有线程都调用了CountDownLatch对象的countDown方法后，也就是计数器值为0时，这时候会返回true；设置的timeout时间到了，因为超时而返回false；其它线程调用了当前线程的interrupt()方法中断了当前线程，当前线程会抛出InterruptedException()异常，然后返回.
+
+3. void countDown()
+
+   线程调用该方法后，计数器的值递减，递减后如果计数器值为0则唤醒所有因调用await方法而被阻塞的线程，否则什么都不做.
+
+4. long geyCount()
+
+   获取当前计数器的值，也就是AQS的state的值.
+
+   
+
+#### CyclicBarrier
+
+   CountDownLatch在解决多个线程同步方面相对于调用线程的join方法已经有了不少优化，但是CountDownLatch的计数器是一次性的，也就是等到计数器值变为0后后，再调用CountDownLatch的await和countDown方法都会立刻返回，这就起不到线程同步的效果了。CyclicBarrier是回环屏障的意思，它可以让一组线程全部达到一个状态后再全部同步执行。这里之所以叫做回环是因为当所有等待线程执行完毕，并重置CyclicBarrier的状态后它可以被重用。之所以叫做屏障是因为线程调用await方法后就会被阻塞，这个阻塞点就称为屏障点，等所有线程都调用了await方法后，线程们就会冲破屏障，继续向下运行.
+
+   ```java
+   class CyclicBarrierSource implements Runnable {
+       private CyclicBarrier cyclicBarrier;
+   
+       public CyclicBarrierSource(CyclicBarrier cyclicBarrier) {
+           this.cyclicBarrier = cyclicBarrier;
+       }
+   
+       @Override
+       public void run() {
+           System.out.println(Thread.currentThread().getName() + "\ttasks begin");
+           try {
+               cyclicBarrier.await();
+               System.out.println(Thread.currentThread().getName() + "\ttasks done");
+           } catch (InterruptedException e) {
+               e.printStackTrace();
+           } catch (BrokenBarrierException e) {
+               e.printStackTrace();
+           } finally {
+           }
+       }
+   }
+   
+   public class TestCyclicBarrier {
+       public static CyclicBarrier cyclicBarrier = new CyclicBarrier(3, () -> {
+           System.out.println(Thread.currentThread().getName() + "\tmerge tasks");
+       });
+   
+       public static void main(String[] args) {
+           ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(3, 5, 5, TimeUnit.SECONDS, new ArrayBlockingQueue<>(3),
+                   Executors.defaultThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
+           try {
+               CyclicBarrierSource jobA = new CyclicBarrierSource(cyclicBarrier);
+               CyclicBarrierSource jobB = new CyclicBarrierSource(cyclicBarrier);
+               CyclicBarrierSource jobC = new CyclicBarrierSource(cyclicBarrier);
+               threadPoolExecutor.execute(jobA);
+               threadPoolExecutor.execute(jobB);
+               threadPoolExecutor.execute(jobC);
+           } catch (Exception e) {
+               e.printStackTrace();
+           } finally {
+               threadPoolExecutor.shutdown();
+           }
+       }
+   }
+   ```
+
+假设个任务拆分成A,B,C三个部分，所有线程必须全部完成A才能执行B,全部完成B才能执行C，如下代码实现(无法通过单个CountDownLatch完成):
+
+```java
+class CyclicBarrierSource implements Runnable {
+    private CyclicBarrier cyclicBarrier;
+    private ThreadLocal threadLocal;
+
+    public CyclicBarrierSource(CyclicBarrier cyclicBarrier, ThreadLocal threadLocal) {
+        this.cyclicBarrier = cyclicBarrier;
+        this.threadLocal = threadLocal;
+    }
+
+    @Override
+    public void run() {
+        try {
+            try {
+                TimeUnit.SECONDS.sleep(5);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println(Thread.currentThread().getName() + "\t完成阶段A");
+            threadLocal.set("A");
+            cyclicBarrier.await();
+
+            try {
+                TimeUnit.SECONDS.sleep(5);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println(Thread.currentThread().getName() + "\t完成阶段B");
+            threadLocal.set("B");
+            cyclicBarrier.await();
+
+            try {
+                TimeUnit.SECONDS.sleep(5);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println(Thread.currentThread().getName() + "\t完成阶段C");
+            threadLocal.set("C");
+            cyclicBarrier.await();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (BrokenBarrierException e) {
+            e.printStackTrace();
+        } finally {
+        }
+    }
+}
+
+public class TestCyclicBarrier {
+    public static Object period;
+    public static ThreadLocal<String> threadLocal = new ThreadLocal<>();
+    public static CyclicBarrier cyclicBarrier = new CyclicBarrier(3, () -> {
+        System.out.println(Thread.currentThread().getName() + "\tmerge tasks " + threadLocal.get());
+    });
+
+    public static void main(String[] args) {
+        ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(3, 5, 5, TimeUnit.SECONDS, new ArrayBlockingQueue<>(3),
+                Executors.defaultThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
+        try {
+            CyclicBarrierSource thA = new CyclicBarrierSource(cyclicBarrier, threadLocal);
+            CyclicBarrierSource thB = new CyclicBarrierSource(cyclicBarrier, threadLocal);
+            CyclicBarrierSource thC = new CyclicBarrierSource(cyclicBarrier, threadLocal);
+            threadPoolExecutor.execute(thA);
+            threadPoolExecutor.execute(thB);
+            threadPoolExecutor.execute(thC);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            threadPoolExecutor.shutdown();
+        }
+    }
+}
+```
+
+##### 原理
+
+![image-20210307114602657](./images/image-20210307114602657.png)
+
+CyclicBarrier基于独占锁实现，本质底层还是基于AQS的。parties用来记录线程个数，这里表示多少线程调用await后，所有线程才回冲破屏障继续往下运行。而count一开始等于parties，每当有线程调用await方法就递减1，当count为0时就表示所有线程都到了屏障点。维护parties和count两个变量，是为了让CyclicBarrier可以被复用，parties始终用来记录总的线程个数，当count计数器变为0后，会将parties的值赋给count，从而进行复用，这两个变量是在构造CyclicBarries对象时进行传递的，如下代码:
+
+![image-20210307115535734](./images/image-20210307115535734.png)
+
+##### 方法
+
+1. int await()
+
+   当线程调用CyclicBarrier的该方法时会被阻塞， 知道满足下面条件之一才回返回:parties个线程都调用了await方法，也就是线程都到了屏障点；其它线程调用了当前线程的interrupt()方法中断了当前线程，则当前线程会抛出InterruptedException异常而返回；与当前屏障点关联的Generation对象的broken标志被设置为true时，会抛出BrokenBarrierException异常，然后返回.内部调用了dowait方法
+
+   ![image-20210307120732584](./images/image-20210307120732584.png)
+
+2. boolean await(long timeout, TimeUnit unit)
+
+   当线程调用CyclicBarrier的该方法时会被阻塞，知道满足下面条件之一才会返回:parties个线程都调用了await()方法，也就是线程都到了屏障点，这时候返回true；设置的超时时间到了后返回false；其它线程调用了当前线程的interrupt()方法中断了当前线程，则当前线程会抛出InterruptedException异常然后返回；与当前屏障点关联的Generation对象的broken标志被设置为true时，会抛出BrokenBarrierException异常，然后返回.
+
+3. int dowait(boolean timed, long nanos)
+
+
+
+#### Semapohore
+
+Semaphore信号量也是Java中的一个同步器，与CountDownLatch和CyclicBarrier不同的是，它内部的计数器是递增的，并且在一开始初始化Semaphore时可以指定一个初始值，但是并不需要知道需要同步的线程个数，而是在需要同步的地方调用acquire方法时指定需要同步的线程个数。
+
+```java
+public class TestSemaphore {
+    public static void main(String[] args) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(2, 5, 5, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(2), Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.AbortPolicy());
+        Semaphore semaphore = new Semaphore(0);
+        try {
+            executor.execute(getRunnable(semaphore));
+            executor.execute(getRunnable(semaphore));
+        } finally {
+            executor.shutdown();
+        }
+        try {
+            semaphore.acquire(2);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        System.out.println(Thread.currentThread().getName() + "\tdone!");
+
+    }
+
+    public static Runnable getRunnable(Semaphore semaphore) {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println(Thread.currentThread().getName() + "\tbegin task");
+                semaphore.release();
+                System.out.println(Thread.currentThread().getName() + "\tend task");
+            }
+        };
+    }
+}
+```
+
+如上代码，acquire的参数是2，说明调用acquire方法的线程会一直阻塞，直到信号量的计数变为2才回返回。即如果构造Semaphore时传递的参数为N，并在M个线程中调用了该信号量的release方法，那么在调用acquire使M个贤臣同步时传递的参数应该是M+N.
+
+使用Semaphore模拟CyclicBarrier
+
+```java
+public class TestSemaphore {
+    public static void main(String[] args) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(3, 5, 5, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(2), Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.AbortPolicy());
+        Semaphore semaphore = new Semaphore(0);
+        try {
+            executor.execute(getRunnableA(semaphore));
+            executor.execute(getRunnableA(semaphore));
+            System.out.println("等待所有线程完成阶段A任务");
+            semaphore.acquire(2);
+            executor.execute(getRunnableB(semaphore));
+            executor.execute(getRunnableB(semaphore));
+            System.out.println("等待所有线程完成阶段B任务");
+            semaphore.acquire(2);
+            System.out.println("所有任务已完成!!!");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            executor.shutdown();
+        }
+        System.out.println(Thread.currentThread().getName() + "\tdone!");
+
+    }
+
+    public static Runnable getRunnableA(Semaphore semaphore) {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println(Thread.currentThread().getName() + "\tbegin task A");
+                try {
+                    //sleep模拟业务处理
+                    TimeUnit.SECONDS.sleep(3);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                semaphore.release();
+            }
+        };
+    }
+
+    public static Runnable getRunnableB(Semaphore semaphore) {
+        return new Runnable() {
+            @Override
+            public void run() {
+                System.out.println(Thread.currentThread().getName() + "\tbegin task B");
+                try {
+                    //sleep模拟业务处理
+                    TimeUnit.SECONDS.sleep(3);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                semaphore.release();
+            }
+        };
+    }
+}
+```
+
+### ConcurrentHashMap
+
+put(K key,V value)方法判断如果key已经存在，则使用value覆盖原来的值并返回原来的值，如果不存在则把value放入并返回null。而putIfAbsent(K key,V value)方法则是如果key已经存在则直接返回原来对应的值并不使用value覆盖，如果key不存在则放入value并返回null，需要注意，判读key是否存在和放入是原子性操作.
+
+### SimpleDateFormat
+
+SimpleDateFormate是Java提供的一个格式化和解析日期的工具类，在日常开发中经常会用到，但是由于它是线程不安全的，素以多线程共用一个SimpleDateFormat实例对日期进行解析或者格式化会导致程序出错.
+
+```java
+public class TestSimpleDateFormat {
+    static SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+    public static void main(String[] args) {
+        for (int i = 1; i <= 10; i++) {
+            new Thread(() -> {
+                try {
+                    System.out.println(sdf.parse("2021-03-09 09:21:33"));
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+            }, String.valueOf(i)).start();
+        }
+    }
+}
+```
+
+![image-20210309092317436](../images/image-20210309092317436.png)
+
+解决方案:
+
+1.每次使用时都new一个SimpleDateFormat对象
+
+2.使用Synchronized、Lock进行同步
+
+```java
+public class TestSimpleDateFormat {
+    static SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    static Lock lock = new ReentrantLock();
+
+    public static void main(String[] args) {
+        /*for (int i = 1; i <= 100; i++) {
+            new Thread(() -> {
+                synchronized (sdf) {
+                    try {
+                        System.out.println(sdf.parse("2021-03-09 09:39:99"));
+                    } catch (ParseException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }, String.valueOf(i)).start();
+        }*/
+        for (int i = 1; i <= 100; i++) {
+            new Thread(() -> {
+                lock.lock();
+                try {
+                    System.out.println(sdf.parse("2021-03-09 09:39:99"));
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                } finally {
+                    lock.unlock();
+                }
+            }, String.valueOf(i)).start();
+        }
+    }
+}
+```
+
+3.使用ThreadLocal
+
+```java
+public class TestSimpleDateFormat {
+    static ThreadLocal<SimpleDateFormat> threadLocal = new ThreadLocal<SimpleDateFormat>() {
+        @Override
+        protected SimpleDateFormat initialValue() {
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        }
+    };
+
+    public static void main(String[] args) {
+        for(int i = 1;i<=100;i++){
+            new Thread(()->{
+                try {
+                    System.out.println(threadLocal.get().parse("2021-03-09 09:39:99"));
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+            },String.valueOf(i)).start();
+        }
+    }
+}
+```
+
+### Timer
+
+注意点:当一个Timer运行多个TimerTask时，只要其中一个TimeTask在执行中向run方法外抛出了异常，则其它任务也会自动终止.
+
+```java
+public class TestTimer {
+    public static void main(String[] args) {
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("one task");
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                throw new RuntimeException("Error!!!");
+            }
+        }, 500);
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                for (; ; ) {
+                    System.out.println("two task");
+                }
+            }
+        }, 1000);
+    }
+}
+```
+
+![image-20210309101941635](../images/image-20210309101941635.png)
+
+TaskQUeue是一个由平衡二叉树实现的优先级队列，每个Timer对象内部有一个TaskQueue队列。用户线程调用Timer的schedule方法就是把TimeTask任务添加到TaskQueue队列。在调用schedule方法时，long delay参数用来指明该任务延迟多少时间执行.
+
+TimerThread是具体执行任务的线程，它从TaskQueue队列里面获取优先级最高的任务进行执行。注意，只有执行完了当前的任务才会从队列里获取下一个任务，而不管队列里是否有任务已经到了设置的delay时间。一个Timer只有一个TimerThread线程，所以Timer的内部实现是一个多生产者-单消费者模型.
+
+![image-20210309103238005](../images/image-20210309103238005.png)
+
+
+
+只要抛出了InterruptedException外的异常，就会终止运行.
+
+#### 线程池使用FutureTask
+
+线程池使用FutureTask时，如果把拒绝策略设置为DiscardPolicy和DiscardOldestPolicy，并且被拒绝的任务的Future对象上调用了无参get()方法，那么线程会一直被阻塞.
 
